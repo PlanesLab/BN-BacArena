@@ -8,7 +8,7 @@ git clone https://github.com/PlanesLab/BN-BacArena.git
 
 ## Contents
 - **R** and **MATLAB** folders contain the source code required to launch BN-BacArena algorithm in both programming languages respectively.
-- **test** folder contains the necessary data to launch BN-BacArena in both programming languages.
+- **test** folder contains the necessary data to launch BN-BacArena test scripts in both programming languages.
 - The scripts **testR.R** and **testMat.m** allow to automatically run BN-BacArena algorithm in R and MATLAB respectively using data located at **test** folder.
 
 ## Requirements
@@ -19,7 +19,7 @@ Prior installation of software/library is required to run BN-BacArena and/or tes
 ## Notes
 - Note that random seeds are different between **R** and **MATLAB** languages. Therefore, BN-BacArena results could be different between them even if the same seed is applied.
 - Using coefficient matrices is not a requirement for employing the BN-BacArena code (in both R and MATLAB). By doing so, users can still achieve the identical results provided by the original BacArena code. Accordingly, cell type and nutrient coefficient matrices can be applied independently.
-- To use your own coefficient matrices, please remember that the dimensions of the matrices are ***c***x***c*** and ***c***x***n***, where ***c*** and ***n*** are the different cell types introduced in the arena and the nutrients of the culture media respectively. The order of the rows and columns of the coefficient matrices should be equal to the order of the cell types and nutrients introduced in the arena.
+- To use your own cell type and nutrient coefficient matrices, please remember that the dimensions of the matrices are ***c***x***c*** and ***c***x***n*** respectively, where ***c*** refers to the different cell types introduced in the arena and ***n*** to the nutrients of the culture media. The order of the rows and columns of the coefficient matrices should be equal to the order of the cell types and nutrients introduced in the arena.
 - In order to use a nutrient coefficient matrix in **R**, it is mandatory to add the argument ```addAnyway = TRUE``` in the **addSubs** function of BacArena.
 ```
 arenaWithMedia = addSubs(arena, ..., addAnyway = TRUE)

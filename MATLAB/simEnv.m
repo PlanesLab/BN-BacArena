@@ -28,7 +28,7 @@ function arena = simEnv(arena, time, varargin)
 %           'nutCoeff', nutMat, 'verbose', false)
 %
 % .. Authors: 
-%       - Telmo Blasco, 08/06/2023, University of Navarra, TECNUN School of Engineering.
+%       - Telmo Blasco, 14/11/2023, University of Navarra, TECNUN School of Engineering.
 
 % Manage arguments
 parser = inputParser;
@@ -90,7 +90,7 @@ arena.relAbundance = cell(time+1,1);
 arena.nutAbundance = cell(time+1,1);
 arena.exAbundance = cell(time+1,1);
 arena.simList = cell(time+1,1);
-arena.medList = cell(time+1,1);
+arena.mfluxList = cell(time+1,1);
 
 % Initital iteration cell position information
 arena.simList{1,1} = arena.orgData;
@@ -104,6 +104,9 @@ arena.relAbundance{1,1}(cellfun(@(x) find(ismember(arena.orgID,x)), num2cell(ab(
 arena.nutAbundance{1,1} = [arena.mediaMetID, arena.mediaMM];
 arena.exAbundance{1,1} = [arena.exRxnID, cellfun(@(x) sum(sum(x))/((10^12) * 0.01 * arena.scale * arena.x * arena.y), arena.diffMat)];
 
+% Initial iteration exchanges information
+arena.mfluxList{1,1} = cellfun(@(x) zeros(length(x),1), arena.orgExch, 'Un', 0);
+
 % Simulate through time
 for i = 1:time
     
@@ -112,6 +115,9 @@ for i = 1:time
     
     % Shuffle organism information
     arena.orgData = arena.orgData(randsample(1:n, n),:);
+    
+    % Define exchanges information
+    arena.mflux = cellfun(@(x) zeros(length(x),1), arena.orgExch, 'Un', 0);
 
     % Simulate through organism
     if verbose
@@ -174,6 +180,9 @@ for i = 1:time
     % Update cell position information
     arena.simList{i+1,1} = arena.orgData;
     
+    % Update exchanges information
+    arena.mfluxList{i+1,1} = arena.mflux;
+    
     % Show progress
     if verbose
         fprintf('Iteration: %d\t Organisms: %d\t Biomass: %.3f pg\n',i,size(arena.orgData,1),round(sum(arena.orgData(:,2)),3))
@@ -220,7 +229,7 @@ function arena = simBac(arena, j, time, varargin)
 %   arena = simBac(arena, 1, 10, 'cutOff', 1e-08, 'secObj', 'pFBA')
 %
 % .. Authors: 
-%       - Telmo Blasco, 08/06/2023, University of Navarra, TECNUN School of Engineering.
+%       - Telmo Blasco, 14/11/2023, University of Navarra, TECNUN School of Engineering.
 
 % Manage arguments
 parser = inputParser;
@@ -267,6 +276,19 @@ if ~isempty(model.predator)
     end
 end
 
+% Calculate growth factor
+factor = 1;
+if ~isempty(arena.bacCoeff) && ~isempty(arena.nutCoeff)
+    factor = (sum(arena.relAbundance{time,1}(:,2).*full(arena.bacCoeff(orgID,:))') + sum(arena.nutAbundance{time,1}(:,2).*full(arena.nutCoeff(orgID,:))') + arena.relAbundance{time,1}(orgID,2)) / arena.relAbundance{time,1}(orgID,2);
+elseif ~isempty(arena.bacCoeff) && isempty(arena.nutCoeff)
+    factor = (sum(arena.relAbundance{time,1}(:,2).*full(arena.bacCoeff(orgID,:))') + arena.relAbundance{time,1}(orgID,2)) / arena.relAbundance{time,1}(orgID,2);
+elseif isempty(arena.bacCoeff) && ~isempty(arena.nutCoeff)
+    factor = (sum(arena.nutAbundance{time,1}(:,2).*full(arena.nutCoeff(orgID,:))') + arena.relAbundance{time,1}(orgID,2)) / arena.relAbundance{time,1}(orgID,2);
+end
+if factor < 0
+    factor = 0;
+end
+
 % Set reaction indexes
 idx = cellfun(@(x) find(ismember(arena.exRxns,x)), exRxns);
 exInd = cellfun(@(x) find(ismember(model.rxns,x)), exRxns);
@@ -276,6 +298,7 @@ lobnd = model.lb;
 
 % Extract culture media
 lb = -cellfun(@(x) arena.diffMat{x,1}(posX,posY), num2cell(idx));
+lb(lb>0) = 0;
 
 % Costrain according to flux definition: mmol/(gDW*hr)
 lobnd(exInd) = model.lb(exInd) * (arena.orgData(j,2) / model.cellWeightMean) * time;
@@ -291,7 +314,7 @@ model = changeRxnBounds(model, exRxns, lb, 'l');
 if model.limitGrowth
     growthLimit = (model.maxWeight * 1.5) - arena.orgData(j,2);
     if growthLimit > 0
-        model.ub(logical(model.c)) = growthLimit;
+        model.ub(logical(model.c)) = growthLimit * factor;
     else
         model.ub(logical(model.c)) = cutOff;
     end
@@ -325,6 +348,9 @@ if fbasol.f > cutOff
     end
 end
 
+% Update exchanges fluxes information
+arena.mflux{orgID} = arena.mflux{orgID} + fluxes; 
+
 % Check growth
 switch model.growType
     case 'linear'
@@ -339,18 +365,6 @@ switch model.growType
         else
             arena.orgData(j,2) = arena.orgData(j,2) - (arena.orgData(j,2) * model.deathRate * time);
         end
-end
-
-% Correct growth by coefficients
-if ~isempty(arena.bacCoeff) && ~isempty(arena.nutCoeff)
-    factor = (sum(arena.relAbundance{time,1}(:,2).*full(arena.bacCoeff(orgID,:))') + sum(arena.nutAbundance{time,1}(:,2).*full(arena.nutCoeff(orgID,:))') + arena.relAbundance{time,1}(orgID,2)) / arena.relAbundance{time,1}(orgID,2);
-    arena.orgData(j,2) = arena.orgData(j,2) * factor;
-elseif ~isempty(arena.bacCoeff) && isempty(arena.nutCoeff)
-    factor = (sum(arena.relAbundance{time,1}(:,2).*full(arena.bacCoeff(orgID,:))') + arena.relAbundance{time,1}(orgID,2)) / arena.relAbundance{time,1}(orgID,2);
-    arena.orgData(j,2) = arena.orgData(j,2) * factor;
-elseif isempty(arena.bacCoeff) && ~isempty(arena.nutCoeff)
-    factor = (sum(arena.nutAbundance{time,1}(:,2).*full(arena.nutCoeff(orgID,:))') + arena.relAbundance{time,1}(orgID,2)) / arena.relAbundance{time,1}(orgID,2);
-    arena.orgData(j,2) = arena.orgData(j,2) * factor;
 end
 
 % Cell division

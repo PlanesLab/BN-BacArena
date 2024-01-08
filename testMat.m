@@ -35,3 +35,9 @@ nutMat = table2array(nutMat);
 
 % Simulate
 data = simEnv(arena, 3, 'bacCoeff', bacMat, 'nutCoeff', nutMat, 'secObj', 'none');
+
+% Plot microbe abundance
+plotCellAbundance(data, 'rel', true)
+
+% Find cross-feeding interactions
+cross = findCrossFeeding(data, 3);

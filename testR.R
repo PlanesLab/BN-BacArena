@@ -27,5 +27,12 @@ bacMat <- read.xlsx(file.path('.','test','coeffMat','cellCoeff.xlsx'), colNames 
 nutMat <- read.xlsx(file.path('.','test','coeffMat','nutCoeff.xlsx'), colNames = F)
 colnames(nutMat) <- mets
 
-# Simulate
+# Simulate (3 hours)
 data <- simEnvBN(arena, 3, bacCoeff = bacMat, nutCoeff = nutMat)
+
+# Plot microbe abundance
+plotGrowthCurve(data)[[2]]
+
+# Extract cross-feeding interactions
+subs <- names(head(getVarSubs(sihumi_test),30))
+findFeeding3(sihumi_test, mets = subs, time=3, plot = T)

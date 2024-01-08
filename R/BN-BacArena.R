@@ -1,3 +1,28 @@
+#' @title Main function for simulating all processes in the environment
+#'
+#' @description The generic function \code{simEnvBN} for a simple simulation of the environment.
+#' @export
+#' @rdname simEnvBN
+#'
+#' @param object An object of class Arena or Eval.
+#' @param time A number giving the number of iterations to perform for the simulation
+#' @param lrw A numeric value needed by solver to estimate array size (by default lwr is estimated in the simEnv() by the function estimate_lrw())
+#' @param continue A boolean indicating whether the simulation should be continued or restarted.
+#' @param reduce A boolean indicating if the resulting \code{Eval} object should be reduced
+#' @param diffusion True if diffusion should be done (default on).
+#' @param diff_par True if diffusion should be run in parallel (default off).
+#' @param cl_size If diff_par is true then cl_size defines the number of cores to be used in parallelized diffusion.
+#' @param sec_obj character giving the secondary objective for a bi-level LP if wanted. Use "mtf" for minimizing total flux, "opt_rxn" for optimizing a random reaction, "opt_ex" for optimizing a random exchange reaction, and "sumex" for optimizing the sum of all exchange fluxes.
+#' @param cutoff value used to define numeric accuracy
+#' @param pcut A number giving the cutoff value by which value of objective function is considered greater than 0.
+#' @param with_shadow True if shadow cost should be stored.
+#' @param verbose Set to false if no status messages should be printed.
+#' @param bacCoeff Matrix of microbe-microbe interaction coefficients.
+#' @param nutCoeff Matrix of microbe-nutrient interaction coefficients.
+#' @return Returns an object of class \code{Eval} which can be used for subsequent analysis steps.
+#' @details The returned object itself can be used for a subsequent simulation, due to the inheritance between \code{Eval} and \code{Arena}. The parameter for sec_obj can be used to optimize a bi-level LP with a secondary objective if wanted. This can be helpful to subselect the solution space and create less alternative optimal solution. The secondary objective can be set to "mtf" to minimize the total flux, to simulate minimal enzyme usage of an organisms. If set to "opt_rxn" or "opt_ex", the secondary objective is picked as a random reaction or exchange reaction respectively everytime a fba is performed. This means that every individual of a population will select a different secondary reaction to optimize. The "sumex" option maximizes the secretion of products.
+#' @seealso \code{\link{Arena-class}} and \code{\link{Eval-class}}
+
 simEnvBN <- function(object, time, lrw=NULL, continue=FALSE, reduce=FALSE, diffusion=TRUE, diff_par=FALSE, cl_size=2, sec_obj="none", cutoff=1e-6, pcut=1e-6, with_shadow=TRUE, verbose=TRUE, bacCoeff=NULL, nutCoeff=NULL){
   
   # Check coefficient matrix
@@ -133,6 +158,29 @@ simEnvBN <- function(object, time, lrw=NULL, continue=FALSE, reduce=FALSE, diffu
   return(evaluation)
 }
 
+#' @title Function for one simulation iteration for objects of Bac class
+#'
+#' @description The generic function \code{simBacBN} implements all neccessary functions for the individuals to update the complete environment. 
+#' @export
+#' @rdname simBacBN
+#'
+#' @param object An object of class Bac.
+#' @param arena An object of class Arena defining the environment.
+#' @param j The index of the organism of interest in orgdat.
+#' @param bacnum integer indicating the number of bacteria individuals per gridcell
+#' @param sublb A vector containing the substance concentrations in the current position of the individual of interest.
+#' @param sec_obj character giving the secondary objective for a bi-level LP if wanted.
+#' @param cutoff value used to define numeric accuracy.
+#' @param pcut A number giving the cutoff value by which value of objective function is considered greater than 0.
+#' @param with_shadow True if shadow cost should be stores (default off).
+#' @param bacCoeff Matrix of microbe-microbe interaction coefficients.
+#' @param nutCoeff Matrix of microbe-nutrient interaction coefficients.
+#' @return Returns the updated environment of the \code{population} parameter with all new positions of individuals on the grid and all new substrate concentrations.
+#' @details Bacterial individuals undergo step by step the following procedures: First the individuals are constrained with \code{constrain} to the substrate environment, then flux balance analysis is computed with \code{optimizeLP}, after this the substrate concentrations are updated with \code{consume}, then the bacterial growth is implemented with \code{growth}, the potential new phenotypes are added with \code{checkPhen}, finally the additional and conditional functions \code{lysis}, \code{move} or \code{chemotaxis} are performed. In case of many compounds in the vector of \code{chemotaxis}, the change of the position takes place by the order of the compounds in the vector of \code{chemotaxis}. Can be used as a wrapper for all important bacterial functions in a function similar to \code{simEnv}.
+#' @seealso \code{\link{Bac-class}}, \code{\link{Arena-class}}, \code{\link{simEnvBN}}, \code{constrain}, \code{optimizeLP}, \code{consume}, \code{growth}, \code{checkPhen}, \code{lysis}, \code{move} and \code{chemotaxis}
+#' @examples
+#' NULL
+
 simBacBN <- function(object, arena, j, sublb, bacnum, sec_obj="none", cutoff=1e-6, pcut=1e-6, with_shadow=FALSE, bacCoeff=NULL, nutCoeff=NULL){
   predator_found <- FALSE
   if( object@predator != ""){
@@ -153,28 +201,33 @@ simBacBN <- function(object, arena, j, sublb, bacnum, sec_obj="none", cutoff=1e-
     arena@orgdat[j, "biomass"] <- NA
     #print("died because of predator")
   }else{
-    const <- constrain(object, object@medium, lb=-sublb[j,object@medium]/bacnum, #scale to population size
-                       dryweight=arena@orgdat[j,"biomass"], tstep=arena@tstep, scale=arena@scale, j)
-    lobnd <- const[[1]]; upbnd <- const[[2]]
-    optimization <- optimizeLP(object, lb=lobnd, ub=upbnd, j=j, sec_obj=sec_obj, cutoff=cutoff, with_shadow=with_shadow)
-    fbasol <- optimization[[1]]
     
-    ############################## BIOMASS UPDATE ##############################
+    # Calculate factor
+    factor <- 1
     if (length(bacCoeff)!=0 && length(nutCoeff)!=0){
       cellAbundance <- (unname(table(arena@orgdat[,'type'])) * 100) / nrow(arena@orgdat)
       nutAbundance <- sublb[j, match(colnames(nutCoeff), colnames(sublb))] / (10^12 *0.01 * arena@scale)
       factor <- (sum(bacCoeff[arena@orgdat[j,'type'],] * cellAbundance) + sum(nutCoeff[arena@orgdat[j,'type'],] * nutAbundance) + cellAbundance[arena@orgdat[j,'type']]) / cellAbundance[arena@orgdat[j,'type']]
-      arena@orgdat[j,'biomass'] <- factor * arena@orgdat[j,'biomass']
     } else if (length(bacCoeff)!=0 && length(nutCoeff)==0){
       cellAbundance <- (unname(table(arena@orgdat[,'type'])) * 100) / nrow(arena@orgdat)
       factor <- (sum(bacCoeff[arena@orgdat[j,'type'],] * cellAbundance) + cellAbundance[arena@orgdat[j,'type']]) / cellAbundance[arena@orgdat[j,'type']]
-      arena@orgdat[j,'biomass'] <- factor * arena@orgdat[j,'biomass']
     } else if (length(bacCoeff)==0 && length(nutCoeff)!=0){
       nutAbundance <- sublb[j, match(colnames(nutCoeff), colnames(sublb))] / (10^12 *0.01 * arena@scale)
       factor <- (sum(nutCoeff[arena@orgdat[j,'type'],] * nutAbundance) + cellAbundance[arena@orgdat[j,'type']]) / cellAbundance[arena@orgdat[j,'type']]
-      arena@orgdat[j,'biomass'] <- factor * arena@orgdat[j,'biomass']
     }
-    ############################################################################
+    if (factor < 0){factor <- 0}
+    
+    # Apply constrains
+    const <- constrain(object, object@medium, lb=-sublb[j,object@medium]/bacnum, #scale to population size
+                       dryweight=arena@orgdat[j,"biomass"], tstep=arena@tstep, scale=arena@scale, j)
+    lobnd <- const[[1]]; upbnd <- const[[2]]
+    
+    # Consider growth factor on biomass flux
+    idx <- which(object@model@react_id == object@rbiomass)
+    upbnd[idx] <- upbnd[idx] * factor
+    
+    optimization <- optimizeLP(object, lb=lobnd, ub=upbnd, j=j, sec_obj=sec_obj, cutoff=cutoff, with_shadow=with_shadow)
+    fbasol <- optimization[[1]]
     
     eval.parent(substitute(sublb[j,] <- consume(object, sublb[j,], bacnum=bacnum, fbasol=fbasol, cutoff) )) #scale consumption to the number of cells?
     
@@ -210,6 +263,7 @@ simBacBN <- function(object, arena, j, sublb, bacnum, sec_obj="none", cutoff=1e-
   return(arena)
 }
 
+# Function estimates lrw array size paremeter needed to solve stiffy diffusion pde with solver lsodes
 estimate_lrw <- function(grid_n, grid_m){
   x=c(10*10, 25*25, 51*51, 61*61, 71*71, 81*81, 91*91, 101*101)
   y=c(3901, 29911, 160000, 230000, 330000, 430000, 580000, 710000)
@@ -222,6 +276,15 @@ estimate_lrw <- function(grid_n, grid_m){
   #lrw <- ((grid_n*grid_m)*18.5 + 20)*10 -> alternative function
   return(lrw)
 }
+
+#' @title Load matlab model (without considering GPR)
+#'
+#' @description The generic function \code{loadMAT} imports matlab cobra models into sybil model files
+#' @export
+#' @rdname loadMAT
+#'
+#' @param file Full path to matlab model file
+#' @details Returns sybil model object (time needed: bacterial model ~ 10s, recon2 ~ 60s)
 
 loadMAT <- function (file){
   
